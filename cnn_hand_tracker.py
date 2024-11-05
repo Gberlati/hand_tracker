@@ -1,11 +1,11 @@
-# hand_tracker.py
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import cv2
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
-import mediapipe as mp  # We'll use this only for data generation
+import mediapipe as mp
+import os
 
 class HandDetectionNet(nn.Module):
     def __init__(self):
@@ -40,13 +40,13 @@ class HandDetectionNet(nn.Module):
             nn.Linear(512, 256),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(256, 42)  # 21 keypoints (x,y) per hand
+            nn.Linear(256, 84)  # 42 keypoints (x,y) = 84 values
         )
         
     def forward(self, x):
         x = self.conv_layers(x)
         keypoints = self.fc_layers(x)
-        return keypoints.view(-1, 2, 21, 2)  # Reshape to (batch, hands, keypoints, coordinates)
+        return keypoints  # Shape: (batch_size, 84)
 
 class HandDataset(Dataset):
     def __init__(self, video_path=None, transform=None):
@@ -82,10 +82,13 @@ class HandDataset(Dataset):
                     hand_points = [[lm.x, lm.y] for lm in hand_landmarks.landmark]
                     landmarks.extend(hand_points)
                 
+                # Flatten landmarks into a single array
+                landmarks_flat = np.array(landmarks).flatten()
+                
                 # Store frame and landmarks
                 self.data.append({
                     'image': cv2.resize(frame, (224, 224)),
-                    'landmarks': np.array(landmarks, dtype=np.float32)
+                    'landmarks': landmarks_flat.astype(np.float32)
                 })
         
         cap.release()
@@ -104,7 +107,7 @@ class HandDataset(Dataset):
         
         return {
             'image': torch.FloatTensor(image).permute(2, 0, 1) / 255.0,
-            'landmarks': torch.FloatTensor(landmarks)
+            'landmarks': torch.FloatTensor(landmarks)  # Shape: (84,)
         }
 
 class HandTracker:
@@ -134,11 +137,11 @@ class HandTracker:
             total_loss = 0
             for batch in dataloader:
                 images = batch['image'].to(self.device)
-                landmarks = batch['landmarks'].to(self.device)
+                landmarks = batch['landmarks'].to(self.device)  # Shape: (batch_size, 84)
                 
                 # Forward pass
-                outputs = self.model(images)
-                loss = criterion(outputs.view(-1, 84), landmarks)
+                outputs = self.model(images)  # Shape: (batch_size, 84)
+                loss = criterion(outputs, landmarks)
                 
                 # Backward pass
                 optimizer.zero_grad()
@@ -160,11 +163,15 @@ class HandTracker:
         # Get predictions
         with torch.no_grad():
             landmarks = self.model(input_tensor)
-            landmarks = landmarks.cpu().numpy()[0]  # Shape: (2, 21, 2)
+            landmarks = landmarks.cpu().numpy()[0].reshape(-1, 2)  # Shape: (42, 2)
+        
+        # Split landmarks into two hands
+        hand1_landmarks = landmarks[:21]  # First 21 landmarks
+        hand2_landmarks = landmarks[21:]  # Last 21 landmarks
         
         # Compute hand centers
-        hand1_center = landmarks[0].mean(axis=0)
-        hand2_center = landmarks[1].mean(axis=0)
+        hand1_center = hand1_landmarks.mean(axis=0)
+        hand2_center = hand2_landmarks.mean(axis=0)
         
         # Calculate distance
         distance = np.linalg.norm(hand1_center - hand2_center)
@@ -176,13 +183,13 @@ class HandTracker:
         smoothed_distance = np.mean(self.distance_history)
         
         # Draw predictions
-        frame = self.draw_predictions(frame, landmarks, smoothed_distance)
+        frame = self.draw_predictions(frame, hand1_landmarks, hand2_landmarks, smoothed_distance)
         return frame, smoothed_distance
     
-    def draw_predictions(self, frame, landmarks, distance):
+    def draw_predictions(self, frame, hand1_landmarks, hand2_landmarks, distance):
         # Draw landmarks for both hands
-        for hand_idx in range(2):
-            for point in landmarks[hand_idx]:
+        for points in [hand1_landmarks, hand2_landmarks]:
+            for point in points:
                 x, y = int(point[0] * frame.shape[1]), int(point[1] * frame.shape[0])
                 cv2.circle(frame, (x, y), 3, (0, 255, 0), -1)
         
@@ -197,33 +204,3 @@ class HandTracker:
             2
         )
         return frame
-
-def main():
-    # Initialize tracker
-    tracker = HandTracker()
-    
-    # Train on video data (optional)
-    # tracker.train("training_video.mp4")
-    
-    # Start webcam
-    cap = cv2.VideoCapture(0)
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
-        # Process frame
-        processed_frame, distance = tracker.process_frame(frame)
-        
-        # Show frame
-        cv2.imshow('Hand Distance Tracker', processed_frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
