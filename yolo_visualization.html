@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hand Distance Visualization</title>
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; background: #1a1a1a; }
+        @keyframes glow {
+            0% { box-shadow: 0 0 20px rgba(0, 150, 255, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(0, 150, 255, 0.5); }
+            100% { box-shadow: 0 0 20px rgba(0, 150, 255, 0.3); }
+        }
+        .plane {
+            animation: glow 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        
+        const PlaneVisualization = () => {
+            const [distance, setDistance] = useState(0);
+            
+            useEffect(() => {
+                const ws = new WebSocket('ws://localhost:8765');
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    setDistance(data.distance);
+                };
+                return () => ws.close();
+            }, []);
+
+            const getPlaneStyle = (index) => {
+                // Base size is much larger now
+                const baseSize = 600;
+                
+                // Calculate spacing based on distance range (30-100cm)
+                const normalizedDistance = Math.max(30, Math.min(100, distance));
+                const distancePercent = (normalizedDistance - 30) / 70; // 0 to 1 scale
+                
+                // Exponential spacing increases with distance
+                const baseSpacing = distancePercent * 200; // Max 200px spacing at 100cm
+                const spacing = Math.pow(baseSpacing, 1.2); // Exponential increase
+                
+                // Calculate z-offset based on index and spacing
+                const zOffset = index * spacing;
+                
+                // Calculate opacity that decreases with distance
+                const opacity = 1 - (index * 0.15);
+                
+                return {
+                    position: 'absolute',
+                    width: `${baseSize}px`,
+                    height: `${baseSize}px`,
+                    backgroundColor: `rgba(0, 150, 255, ${opacity * 0.1})`,
+                    border: `3px solid rgba(0, 150, 255, ${opacity * 0.8})`,
+                    borderRadius: '16px',
+                    transform: `
+                        translate(-50%, -50%)
+                        translateZ(${-zOffset}px)
+                        rotateX(5deg)
+                    `,
+                    boxShadow: `0 0 ${40 + zOffset/5}px rgba(0, 150, 255, ${opacity * 0.3})`,
+                    transition: 'all 0.3s ease-out',
+                };
+            };
+
+            // Calculate a color based on distance
+            const getDistanceColor = () => {
+                const normalizedDistance = Math.max(30, Math.min(100, distance));
+                const percentage = (normalizedDistance - 30) / 70;
+                // Go from green to yellow to red
+                if (percentage < 0.5) {
+                    return 'text-green-400';
+                } else if (percentage < 0.8) {
+                    return 'text-yellow-400';
+                }
+                return 'text-red-400';
+            };
+
+            return (
+                <div className="relative w-full h-screen bg-gray-900 overflow-hidden">
+                    <div className="absolute top-1/2 left-1/2 w-full h-full"
+                         style={{
+                             perspective: '2000px',
+                             transformStyle: 'preserve-3d'
+                         }}>
+                        {[0, 1, 2].map((i) => (
+                            <div
+                                key={i}
+                                style={getPlaneStyle(i)}
+                                className="plane"
+                            >
+                                <div className="absolute inset-0 flex items-center justify-center text-blue-500 font-mono text-4xl">
+                                    {i + 1}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    {/* Distance display */}
+                    <div className={`absolute top-8 left-8 font-mono text-4xl ${getDistanceColor()}`}>
+                        {distance.toFixed(1)} cm
+                    </div>
+                    
+                    {/* Range indicator */}
+                    <div className="absolute bottom-8 left-8 right-8 text-gray-500 font-mono">
+                        <div className="flex justify-between text-xl">
+                            <span>30cm</span>
+                            <span>100cm</span>
+                        </div>
+                        <div className="h-2 bg-gray-800 rounded-full mt-2">
+                            <div 
+                                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                                style={{
+                                    width: `${Math.max(0, Math.min(100, ((distance - 30) / 70) * 100))}%`
+                                }}
+                            />
+                        </div>
+                    </div>
+                    
+                    {/* Grid effect */}
+                    <div className="absolute inset-0"
+                         style={{
+                             backgroundImage: 'linear-gradient(rgba(0, 150, 255, 0.1) 2px, transparent 2px), linear-gradient(90deg, rgba(0, 150, 255, 0.1) 2px, transparent 2px)',
+                             backgroundSize: '40px 40px',
+                             opacity: 0.2
+                         }} />
+                </div>
+            );
+        };
+
+        ReactDOM.render(
+            <PlaneVisualization />,
+            document.getElementById('root')
+        );
+    </script>
+</body>
+</html>
