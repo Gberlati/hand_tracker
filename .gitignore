@@ -2,3 +2,4 @@ env
 __pycache__
 hand_model.pth
 training_data.mp4
+venv
