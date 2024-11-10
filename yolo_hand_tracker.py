@@ -1,109 +1,107 @@
-from transformers import YolosConfig, YolosModel, AutoImageProcessor
+import cv2
+import mediapipe as mp
 import torch
-from datasets import load_dataset
-
-dataset = load_dataset("huggingface/cats-image", trust_remote_code=True)
-image = dataset["test"]["image"][0]
-
-image_processor = AutoImageProcessor.from_pretrained("hustvl/yolos-small")
-model = YolosModel.from_pretrained("hustvl/yolos-small")
-
-inputs = image_processor(image, return_tensors="pt")
-
-with torch.no_grad():
-    outputs = model(**inputs)
-
-last_hidden_states = outputs.last_hidden_state
-print(list(last_hidden_states.shape))
-print('--------------------------')
-pimport cv2
-import torch
-from transformers import YolosForObjectDetection, AutoImageProcessor
-import numpy as np
 
 def main():
-    # Load model and processor
-    model = YolosForObjectDetection.from_pretrained("hustvl/yolos-small")
-    image_processor = AutoImageProcessor.from_pretrained("hustvl/yolos-small")
-    
-    # Set up webcam
+    # Initialize MediaPipe Hands
+    mp_hands = mp.solutions.hands
+    mp_draw = mp.solutions.drawing_utils
+    hands = mp_hands.Hands(
+        static_image_mode=False,
+        max_num_hands=2,  # Detect up to 2 hands
+        min_detection_confidence=0.7,
+        min_tracking_confidence=0.5
+    )
+
+    # Set up webcam with higher resolution
     cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    
     if not cap.isOpened():
         print("Error: Could not open webcam")
         return
 
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = model.to(device)
-    model.eval()
+    # Ensure CUDA is being used
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        print("CUDA not available. Using CPU.")
+        device = torch.device("cpu")
 
     while True:
-        # Read frame
         ret, frame = cap.read()
         if not ret:
             break
 
-        # Convert BGR to RGB (YOLOS expects RGB)
+        # Convert to RGB for MediaPipe
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-        # Prepare image for model
-        inputs = image_processor(rgb_frame, return_tensors="pt")
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-
-        # Get predictions
-        with torch.no_grad():
-            outputs = model(**inputs)
-
-        # Process results
-        probas = outputs.logits.softmax(-1)[0, :, :]
-        keep = probas.max(-1).values > 0.9  # Confidence threshold
         
-        # Convert predictions to bounding boxes
-        target_sizes = torch.tensor([frame.shape[:2]]).to(device)
-        results = image_processor.post_process_object_detection(
-            outputs, 
-            threshold=0.9, 
-            target_sizes=target_sizes
-        )[0]
-
-        # Draw boxes for detected hands
-        for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
-            box = [int(i) for i in box.tolist()]
-            
-            # Check if the detected object is a person (which includes hands)
-            # COCO dataset label 1 is person
-            if label == 1 and score > 0.9:
-                # Draw rectangle
-                cv2.rectangle(
-                    frame,
-                    (box[0], box[1]),
-                    (box[2], box[3]),
-                    (0, 255, 0),
-                    2
+        # Process hands
+        results = hands.process(rgb_frame)
+        
+        # Draw hand landmarks and boxes
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                # Draw landmarks
+                mp_draw.draw_landmarks(
+                    frame, 
+                    hand_landmarks, 
+                    mp_hands.HAND_CONNECTIONS,
+                    mp_draw.DrawingSpec(color=(0,255,0), thickness=2, circle_radius=2),
+                    mp_draw.DrawingSpec(color=(0,0,255), thickness=2)
                 )
                 
-                # Add label and score
-                label_text = f"Hand: {score:.2f}"
+                # Calculate bounding box
+                h, w, _ = frame.shape
+                x_coords = [lm.x * w for lm in hand_landmarks.landmark]
+                y_coords = [lm.y * h for lm in hand_landmarks.landmark]
+                
+                x1, y1 = int(min(x_coords)), int(min(y_coords))
+                x2, y2 = int(max(x_coords)), int(max(y_coords))
+                
+                # Add padding to bounding box
+                padding = 20
+                x1 = max(0, x1 - padding)
+                y1 = max(0, y1 - padding)
+                x2 = min(w, x2 + padding)
+                y2 = min(h, y2 + padding)
+                
+                # Draw bounding box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
+                # Add hand label
                 cv2.putText(
                     frame,
-                    label_text,
-                    (box[0], box[1] - 10),
+                    "Hand Detected",
+                    (x1, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
                     (0, 255, 0),
                     2
                 )
 
+        # Add FPS counter
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        cv2.putText(
+            frame,
+            f"FPS: {int(fps)}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 255, 0),
+            2
+        )
+
         # Show frame
         cv2.imshow('Hand Detection', frame)
 
-        # Break loop on 'q' press
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    # Clean up
     cap.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    main()rint(outputs)
+    main()
