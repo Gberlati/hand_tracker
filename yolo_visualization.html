@@ -52,29 +52,35 @@
                 
                 // Calculate opacity that decreases with distance
                 const opacity = 1 - (index * 0.15);
+
+                // Define colors for each plane
+                const colors = [
+                    { bg: 'rgba(144, 238, 144, 0.2)', border: 'rgb(144, 238, 144)' },  // Green
+                    { bg: 'rgba(255, 255, 255, 0.2)', border: 'rgb(255, 255, 255)' },  // White
+                    { bg: 'rgba(255, 182, 193, 0.2)', border: 'rgb(255, 182, 193)' }   // Pink
+                ];
                 
                 return {
                     position: 'absolute',
                     width: `${baseSize}px`,
-                    height: `${baseSize}px`,
-                    backgroundColor: `rgba(0, 150, 255, ${opacity * 0.1})`,
-                    border: `3px solid rgba(0, 150, 255, ${opacity * 0.8})`,
+                    height: `${baseSize * 0.6}px`,  // Make planes rectangular
+                    backgroundColor: colors[index].bg,
+                    border: `3px solid ${colors[index].border}`,
                     borderRadius: '16px',
                     transform: `
                         translate(-50%, -50%)
                         translateZ(${-zOffset}px)
-                        rotateX(5deg)
+                        translateY(${index * 20}px)
+                        rotateX(45deg)
                     `,
-                    boxShadow: `0 0 ${40 + zOffset/5}px rgba(0, 150, 255, ${opacity * 0.3})`,
+                    boxShadow: `0 0 ${40 + zOffset/5}px ${colors[index].border.replace('rgb', 'rgba').replace(')', ', 0.3)')}`,
                     transition: 'all 0.3s ease-out',
                 };
             };
 
-            // Calculate a color based on distance
             const getDistanceColor = () => {
                 const normalizedDistance = Math.max(30, Math.min(100, distance));
                 const percentage = (normalizedDistance - 30) / 70;
-                // Go from green to yellow to red
                 if (percentage < 0.5) {
                     return 'text-green-400';
                 } else if (percentage < 0.8) {
