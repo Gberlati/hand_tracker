@@ -3,3 +3,5 @@ __pycache__
 hand_model.pth
 training_data.mp4
 venv
+palm_detection_checkpoints
+datasets

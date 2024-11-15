@@ -1,6 +1,6 @@
 import cv2
 import torch
-from cnn_hand_tracker import HandTracker, HandDataset
+from version_3 import HandTracker, HandDataset
 import os
 
 def record_training_data():
